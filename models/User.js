@@ -5,8 +5,8 @@ const UserSchema = new mongoose.Schema(
   {
     walletAddress: { type: String, required: true, unique: true, index: true },
     nonce: { type: String }, // for SIWE
-    name: { type: String, default: "" },
-    email: { type: String, default: "" },
+    // name: { type: String, default: "" },
+    // email: { type: String, default: "" },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
   },

@@ -1,6 +1,8 @@
 // app/api/auth/nonce/route.js
-import dbConnect from "../../../../lib/db";
-import User from "../../../../models/User";
+
+import dbConnect from "@/lib/db";
+import User from "@/models/User";
+
 
 function generateNonce() {
   return Math.floor(Math.random() * 1000000).toString();

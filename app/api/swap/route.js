@@ -1,9 +1,11 @@
 // app/api/swap/route.js
-import dbConnect from "../../../lib/db";
-import Transaction from "../../../models/Transaction";
-import User from "../../../models/User";
+
+import dbConnect from "@/lib/db";
+import Transaction from "@/models/Transaction";
+import User from "@/models/User";
+import { verifyToken } from "@/utils/jwt";
 import axios from "axios";
-import { verifyToken } from "../../../utils/jwt";
+
 import { cookies } from "next/headers";
 
 export async function POST(req) {
