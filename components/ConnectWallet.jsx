@@ -1,79 +1,144 @@
-// components/ConnectWallet.js
+// app/components/ConnectWallet.jsx
 "use client";
-import { useState } from "react";
-import axios from "axios";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAppKit, useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
+import { SiweMessage } from "siwe";
+import { ethers } from "ethers";
+
+/*
+  Behavior:
+  - open AppKit modal to connect wallets
+  - when connected, automatically perform SIWE:
+      GET /api/auth/nonce -> build canonical SIWE message -> sign -> POST /api/auth/verify
+  - if verify OK -> redirect to /dashboard
+*/
 
 export default function ConnectWallet() {
-  const [wallet, setWallet] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const { open } = useAppKit();
+  const { address, isConnected } = useAppKitAccount();
+  const { provider } = useAppKitProvider();
+  const router = useRouter();
+
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [didSignIn, setDidSignIn] = useState(false);
+
+  useEffect(() => {
+    // If connected and not yet signed-in via SIWE in this session, attempt sign-in
+    if (isConnected && address && provider && !didSignIn) {
+      void doSiweSignIn();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, address, provider]);
 
   async function connect() {
-    if (!window.ethereum) {
-      alert("Please install MetaMask");
-      return;
-    }
+    setError(null);
     try {
-      setLoading(true);
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      const address = accounts[0];
-      setWallet(address);
+      await open();
+    } catch (err) {
+      console.error("AppKit open error:", err);
+      setError("Failed to open wallet modal");
+    }
+  }
 
-      // Request nonce from server
-      const nonceRes = await axios.get(`/api/auth/nonce?wallet=${address}`);
-      const { message } = nonceRes.data;
+  async function doSiweSignIn() {
+    setBusy(true);
+    setError(null);
+    try {
+      // 1) Get signer and chain
+      const browserProvider = new ethers.BrowserProvider(provider);
+      const signer = await browserProvider.getSigner();
+      const walletAddress = (await signer.getAddress()).toLowerCase();
+      const network = await browserProvider.getNetwork();
+      const chainId = network.chainId || 1;
 
-      // Ask user to sign message
-      const signature = await window.ethereum.request({
-        method: "personal_sign",
-        params: [message, address]
+      // 2) Get nonce from server
+      const nonceRes = await fetch("/api/auth/nonce");
+      if (!nonceRes.ok) throw new Error("Failed to fetch nonce");
+      const { nonce } = await nonceRes.json();
+
+      // 3) Build canonical SIWE message with siwe lib
+      const domain = window.location.host;
+      const origin = window.location.origin;
+      const statement = "Sign in to Eriwa — Non-custodial crypto app.";
+      const siweMessage = new SiweMessage({
+        domain,
+        address: walletAddress,
+        statement,
+        uri: origin,
+        version: "1",
+        chainId: chainId,
+        nonce,
+        issuedAt: new Date().toISOString()
       });
 
-      // Verify on server, get JWT cookie set
-      const verifyRes = await axios.post("/api/auth/verify", { address, signature }, { withCredentials: true });
+      const messageToSign = siweMessage.prepareMessage();
 
-      if (verifyRes.data?.ok) {
-        // server should set cookie; we can reload or just continue
-        window.location.href = "/dashboard";
-      } else {
-        alert("Auth failed");
+      // 4) Ask wallet to sign
+      const signature = await signer.signMessage(messageToSign);
+
+      // 5) Verify server-side
+      const verifyRes = await fetch("/api/auth/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: messageToSign, signature })
+      });
+
+      const verifyJson = await verifyRes.json();
+
+      if (!verifyRes.ok) {
+        console.error("SIWE verify failed:", verifyJson);
+        throw new Error(verifyJson.error || "SIWE verification failed");
       }
+
+      // mark we signed in (prevents double-sign on re-renders)
+      setDidSignIn(true);
+
+      // redirect to dashboard
+      router.push("/dashboard");
     } catch (err) {
-      console.error(err);
-      alert(err?.message || "Error connecting wallet");
+      console.error("SIWE flow error:", err);
+      setError(err?.message || String(err));
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
   }
 
-  function shortAddr(a){
-    if(!a) return "";
-    return a.slice(0,6)+"..."+a.slice(-4);
+  async function disconnect() {
+  try {
+    // If provider supports disconnect (WalletConnect does)
+    if (provider?.disconnect) await provider.disconnect();
+    
+    // Call logout API to clear JWT cookie
+    await fetch("/api/auth/logout", { method: "POST" });
+
+    // Reload page to reset client state
+    window.location.href = "/";
+  } catch (err) {
+    console.error("disconnect error", err);
   }
+}
+
 
   return (
     <div>
-      {!wallet ? (
-        <button
-          onClick={connect}
-          className="px-4 py-2 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 hover:scale-105 transform transition"
-          disabled={loading}
-        >
-          {loading ? "Connecting..." : "Connect Wallet"}
+      {!isConnected ? (
+        <button onClick={connect} className="bg-gradient-to-r from-indigo-500 to-violet-500 px-5 py-3 rounded-full text-white font-semibold">
+          {busy ? "Working..." : "Connect Wallet"}
         </button>
       ) : (
-        <div className="flex gap-2 items-center">
-          <span className="text-sm bg-gray-800 px-3 py-1 rounded-full">{shortAddr(wallet)}</span>
-          <button
-            onClick={() => {
-              // clear cookie via API
-              axios.post("/api/auth/logout").then(()=> window.location.reload());
-            }}
-            className="px-3 py-1 rounded-full border border-gray-600"
-          >
-            Logout
+        <div className="flex items-center gap-3">
+          <div className="text-sm bg-slate-700 px-3 py-2 rounded-full font-mono">{address}</div>
+          <button onClick={doSiweSignIn} disabled={busy} className="px-3 py-2 rounded-full bg-emerald-600 text-sm text-white">
+            {busy ? "Signing..." : "Sign-In"}
           </button>
+          <button onClick={disconnect} className="px-3 py-2 rounded-full bg-slate-600 text-sm text-white">Disconnect</button>
         </div>
       )}
+
+      {error && <div className="mt-2 text-sm text-rose-400">{error}</div>}
     </div>
   );
 }

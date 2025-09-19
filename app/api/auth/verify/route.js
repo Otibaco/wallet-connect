@@ -1,58 +1,69 @@
 // app/api/auth/verify/route.js
+import connectToDatabase from "../../../../lib/db";
+import Nonce from "../../../../models/Nonce";
+import User from "../../../../models/User";
+import { SiweMessage } from "siwe";
+import jwt from "jsonwebtoken";
 
-import { NextResponse } from "next/server";
-import { verifyMessage } from "ethers"; // ✅ direct import in v6
-import cookie from "cookie";
-import dbConnect from "@/lib/db";
-import User from "@/models/User";
-import { signToken } from "@/utils/jwt";
-
-export async function POST(req) {
-  const body = await req.json();
-  const { address, signature } = body;
-  if (!address || !signature) {
-    return new Response(JSON.stringify({ ok: false, error: "missing" }), { status: 400 });
-  }
-
-  await dbConnect();
-  const user = await User.findOne({ walletAddress: address.toLowerCase() });
-  if (!user) {
-    return new Response(JSON.stringify({ ok: false, error: "user not found" }), { status: 404 });
-  }
-
-  // recreate message
-  const message = `Sign this message to authenticate with ${process.env.NEXT_PUBLIC_APP_NAME || "CryptoNext"}.\n\nWallet: ${address}\nNonce: ${user.nonce}`;
+export async function POST(request) {
+  await connectToDatabase();
 
   try {
-    // ✅ ethers v6 style
-    const recovered = verifyMessage(message, signature);
+    const body = await request.json();
+    const { message, signature } = body;
+    if (!message || !signature) return new Response(JSON.stringify({ error: "Missing message or signature" }), { status: 400 });
 
-    if (recovered.toLowerCase() !== address.toLowerCase()) {
-      return new Response(JSON.stringify({ ok: false, error: "invalid signature" }), { status: 401 });
+    // Parse SIWE message
+    let siwe;
+    try {
+      siwe = new SiweMessage(message);
+    } catch (err) {
+      return new Response(JSON.stringify({ error: "Invalid SIWE message" }), { status: 400 });
     }
 
-    // signature valid: assign new nonce
-    user.nonce = Math.floor(Math.random() * 1000000).toString();
-    await user.save();
+    // Check nonce exists and is unused & not expired
+    const nonceDoc = await Nonce.findOne({ nonce: siwe.nonce });
+    if (!nonceDoc) return new Response(JSON.stringify({ error: "Nonce not found or expired" }), { status: 400 });
+    if (nonceDoc.used) return new Response(JSON.stringify({ error: "Nonce already used" }), { status: 400 });
+    if (nonceDoc.expiresAt < new Date()) return new Response(JSON.stringify({ error: "Nonce expired" }), { status: 400 });
 
-    const token = signToken({ walletAddress: address.toLowerCase() });
+    // Verify signature
+    try {
+      const verification = await siwe.verify({ signature });
+      if (!verification.success) return new Response(JSON.stringify({ error: "Signature verification failed" }), { status: 401 });
+    } catch (err) {
+      return new Response(JSON.stringify({ error: "Signature verification error" }), { status: 401 });
+    }
 
-    // set cookie
-    const res = NextResponse.json({ ok: true });
-    res.headers.append(
-      "Set-Cookie",
-      cookie.serialize("token", token, {
-        httpOnly: true,
-        path: "/",
-        maxAge: 60 * 60 * 24 * 7, // 7 days
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-      })
+    // Mark nonce used
+    nonceDoc.used = true;
+    await nonceDoc.save();
+
+    // Upsert user (register if new, update lastLogin if existing)
+    const walletAddr = siwe.address.toLowerCase();
+    await User.findOneAndUpdate(
+      { walletAddress: walletAddr },
+      { $set: { lastLogin: new Date() }, $setOnInsert: { createdAt: new Date() } },
+      { upsert: true, new: true }
     );
 
-    return res;
+    // Issue JWT token containing wallet address
+    const token = jwt.sign({ walletAddress: walletAddr }, process.env.JWT_SECRET, { expiresIn: process.env.JWT_EXPIRES_IN || "7d" });
+
+    // Create cookie
+    const cookieParts = [`eriwa_jwt=${token}`, "HttpOnly", "Path=/", "SameSite=Lax"];
+    if (process.env.NODE_ENV === "production") cookieParts.push("Secure");
+    if (process.env.COOKIE_DOMAIN) cookieParts.push(`Domain=${process.env.COOKIE_DOMAIN}`);
+
+    return new Response(JSON.stringify({ ok: true, walletAddress: walletAddr }), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/json",
+        "Set-Cookie": cookieParts.join("; ")
+      }
+    });
   } catch (err) {
-    console.error("Signature verification failed:", err);
-    return new Response(JSON.stringify({ ok: false, error: "verification failed" }), { status: 500 });
+    console.error("Verify route error:", err);
+    return new Response(JSON.stringify({ error: "Internal server error" }), { status: 500 });
   }
 }

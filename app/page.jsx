@@ -1,12 +1,15 @@
 // app/page.js
-import ConnectWallet from "../components/ConnectWallet";
+"use client";
+import ConnectWallet from "./components/ConnectWallet";
 
 export default function Home() {
   return (
-    <div className="min-h-[60vh] flex flex-col items-center justify-center text-center gap-6">
-      <h1 className="text-4xl font-bold">Welcome to {process.env.NEXT_PUBLIC_APP_NAME}</h1>
-      <p className="max-w-xl">A minimal crypto web app using MetaMask auth, MongoDB, Moralis balances and StealthEX swap integration.</p>
-      <ConnectWallet />
+    <div className="space-y-6">
+      <section className="rounded-2xl p-6 bg-slate-800/30">
+        <h2 className="text-2xl font-bold mb-2">Welcome to Eriwa</h2>
+        <p className="text-slate-300 mb-4">Simple, mobile-first, non-custodial crypto app. Connect wallet to continue.</p>
+        <ConnectWallet />
+      </section>
     </div>
   );
 }

@@ -1,26 +1,29 @@
 // middleware.js
 import { NextResponse } from "next/server";
-import { verifyToken } from "./utils/jwt";
+import jwt from "jsonwebtoken";
 
-export function middleware(req) {
-  const { pathname } = req.nextUrl;
+const PROTECTED = ["/dashboard", "/swap", "/history", "/profile", "/api/swaps", "/api/swap"];
 
-  // protect specific paths
-  if (pathname.startsWith("/dashboard") || pathname.startsWith("/swap") || pathname.startsWith("/history") || pathname.startsWith("/profile")) {
-    const token = req.cookies.get("token")?.value;
-    if (!token) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
-    const payload = verifyToken(token);
-    if (!payload) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
-    // allow request
+export function middleware(request) {
+  const pathname = request.nextUrl.pathname;
+
+  if (!PROTECTED.some(p => pathname.startsWith(p))) return NextResponse.next();
+
+  const token = request.cookies.get("eriwa_jwt")?.value;
+  if (!token) {
+    const url = new URL("/", request.url);
+    url.searchParams.set("auth", "required");
+    return NextResponse.redirect(url);
   }
 
-  return NextResponse.next();
+  try {
+    jwt.verify(token, process.env.JWT_SECRET);
+    return NextResponse.next();
+  } catch (err) {
+    const url = new URL("/", request.url);
+    url.searchParams.set("auth", "required");
+    return NextResponse.redirect(url);
+  }
 }
 
-export const config = {
-  matcher: ["/dashboard/:path*", "/swap/:path*", "/history/:path*", "/profile/:path*"]
-};
+export const config = { matcher: ["/dashboard/:path*", "/swap/:path*", "/history/:path*", "/profile/:path*"] };

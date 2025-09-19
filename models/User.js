@@ -1,16 +1,11 @@
 // models/User.js
 import mongoose from "mongoose";
 
-const UserSchema = new mongoose.Schema(
-  {
-    walletAddress: { type: String, required: true, unique: true, index: true },
-    nonce: { type: String }, // for SIWE
-    // name: { type: String, default: "" },
-    // email: { type: String, default: "" },
-    createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now }
-  },
-  { timestamps: true }
-);
+const UserSchema = new mongoose.Schema({
+  walletAddress: { type: String, unique: true, required: true, index: true },
+  createdAt: { type: Date, default: Date.now },
+  lastLogin: { type: Date, default: Date.now },
+  metadata: { type: Object, default: {} }
+});
 
 export default mongoose.models.User || mongoose.model("User", UserSchema);
