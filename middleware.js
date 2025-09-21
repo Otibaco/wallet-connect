@@ -1,19 +1,23 @@
 import { NextResponse } from "next/server";
-import jwt from "jsonwebtoken";
+import { jwtVerify } from "jose";
 
-export function middleware(req) {
+export async function middleware(req) {
   const token = req.cookies.get("token")?.value;
 
-  if (req.nextUrl.pathname.startsWith("/dashboard")) {
-    if (!token) {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
+  if (!token) {
+    return NextResponse.redirect(new URL("/", req.url));
+  }
 
-    try {
-      jwt.verify(token, process.env.JWT_SECRET);
-      return NextResponse.next();
-    } catch {
-      return NextResponse.redirect(new URL("/", req.url));
-    }
+  try {
+    const secret = new TextEncoder().encode(process.env.JWT_SECRET);
+    await jwtVerify(token, secret); // ✅ works in Edge runtime
+    return NextResponse.next();
+  } catch (err) {
+    console.error("❌ Invalid token:", err);
+    return NextResponse.redirect(new URL("/", req.url));
   }
 }
+
+export const config = {
+  matcher: ["/dashboard/:path*"],
+};
