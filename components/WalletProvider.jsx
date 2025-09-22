@@ -29,7 +29,8 @@ if (!projectId) {
 const metadata = {
   name: "Eriwa App",
   description: "Non-custodial crypto app",
-  url: "http://localhost:3000", // update in production
+  //url: "http://localhost:3000", update in production
+  url: "https://wallet-connect-vert-seven.vercel.app/",
   icons: ["https://avatars.githubusercontent.com/u/37784886"],
 };
 
