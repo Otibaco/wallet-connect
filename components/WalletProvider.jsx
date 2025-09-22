@@ -29,8 +29,8 @@ if (!projectId) {
 const metadata = {
   name: "Eriwa App",
   description: "Non-custodial crypto app",
-  //url: "http://localhost:3000", update in production
-  url: "https://wallet-connect-vert-seven.vercel.app/",
+  //url: "http://localhost:3000", update in dev
+  url: "https://wallet-connect-vert-seven.vercel.app",
   icons: ["https://avatars.githubusercontent.com/u/37784886"],
 };
 
@@ -54,7 +54,11 @@ export function Providers({ children }) {
   return (
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <AppKitProvider>{children}</AppKitProvider>
+        <AppKitProvider
+          adapters={[wagmiAdapter]}
+          projectId={projectId}
+          metadata={metadata}
+        >{children}</AppKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
