@@ -2,30 +2,48 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import User from "@/models/User";
 import { SignJWT } from "jose";
+import { verifyMessage } from "viem";
+import { getNonce, clearNonce } from "../nonce/route";
 
 export async function POST(req) {
   try {
-    const { address } = await req.json();
+    const { address, signature } = await req.json();
 
-    if (!address) {
-      return NextResponse.json(
-        { error: "Wallet address missing" },
-        { status: 400 }
-      );
+    if (!address || !signature) {
+      return NextResponse.json({ error: "Missing address or signature" }, { status: 400 });
     }
 
-    // 1. Connect to DB
+    const ip = req.headers.get("x-forwarded-for") || "global";
+    const nonce = getNonce(ip);
+    if (!nonce) {
+      return NextResponse.json({ error: "Nonce expired or missing" }, { status: 400 });
+    }
+
+    // Verify signature
+    const valid = await verifyMessage({
+      address,
+      message: nonce,
+      signature,
+    });
+
+    if (!valid) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+    }
+
+    // Clear nonce after use
+    clearNonce(ip);
+
+    // Connect DB
     await connectDB();
 
-    // 2. Find or create user
+    // Find or create user
     let user = await User.findOne({ walletAddress: address });
     if (!user) {
       user = await User.create({ walletAddress: address });
     }
 
-    // 3. Create JWT (with jose)
+    // Issue JWT
     const secret = new TextEncoder().encode(process.env.JWT_SECRET);
-
     const token = await new SignJWT({
       id: user._id.toString(),
       walletAddress: user.walletAddress,
@@ -34,14 +52,14 @@ export async function POST(req) {
       .setExpirationTime("1d")
       .sign(secret);
 
-    // 4. Set cookie with token
+    // Send response with cookie
     const res = NextResponse.json({ success: true, user });
     res.cookies.set("token", token, {
-      httpOnly: true, // not accessible from JS
-      secure: process.env.NODE_ENV === "production", // HTTPS only in prod
-      sameSite: "strict", // CSRF protection
-      maxAge: 60 * 60 * 24, // 1 day
-      path: "/", // valid for whole site
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 60 * 60 * 24,
+      path: "/",
     });
 
     return res;

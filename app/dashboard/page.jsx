@@ -17,28 +17,28 @@ export default function DashboardPage() {
         const { data } = await axios.get("/api/auth/me");
         setUser(data.user);
       } catch (err) {
-        console.error("Failed to fetch user", err);
-        router.push("/"); // if token invalid → redirect home
+        router.push("/"); // invalid → redirect
       }
     };
     fetchUser();
   }, [router]);
 
+  const handleLogout = async () => {
+    try {
+      await axios.post("/api/auth/logout");
+      disconnect(); // disconnect wallet
+      router.push("/");
+    } catch (err) {
+      console.error("Logout failed", err);
+    }
+  };
+
   if (!user) {
-    return (
-      <div className="flex items-center justify-center h-screen text-gray-400">
-        Loading...
-      </div>
-    );
+    return <div className="flex items-center justify-center h-screen text-gray-400">Loading...</div>;
   }
 
   return (
-    <motion.div
-      className="space-y-6"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-    >
+    <motion.div className="space-y-6" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5 }}>
       <div className="flex justify-between items-center">
         <h2 className="text-3xl font-semibold">
           Welcome back,{" "}
@@ -47,13 +47,8 @@ export default function DashboardPage() {
           </span>
         </h2>
 
-        {/* ✅ Disconnect button */}
         <button
-          onClick={() => {
-            disconnect(); // wagmi disconnect
-            document.cookie = "token=; Max-Age=0; path=/"; // clear auth cookie
-            router.push("/"); // redirect home
-          }}
+          onClick={handleLogout}
           className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition"
         >
           Disconnect

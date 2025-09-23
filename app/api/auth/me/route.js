@@ -10,5 +10,6 @@ export async function GET(req) {
     return NextResponse.json({ user: decoded });
   } catch (err) {
     return NextResponse.json({ user: null });
+    
   }
 }
