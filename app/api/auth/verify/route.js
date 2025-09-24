@@ -18,7 +18,12 @@ export async function POST(req) {
       return NextResponse.json({ error: "User not found" }, { status: 400 });
     }
 
-    // Verify signed nonce
+    // ✅ Ensure the message matches the stored nonce
+    if (!message.includes(user.nonce)) {
+      return NextResponse.json({ error: "Nonce mismatch" }, { status: 400 });
+    }
+
+    // ✅ Verify signature
     const valid = await verifyMessage({
       address,
       message,
@@ -29,11 +34,11 @@ export async function POST(req) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
 
-    // Clear nonce after use
+    // ✅ Clear nonce after use
     user.nonce = null;
     await user.save();
 
-    // Issue JWT
+    // ✅ Issue JWT
     const secret = new TextEncoder().encode(process.env.JWT_SECRET);
     const token = await new SignJWT({
       id: user._id.toString(),
@@ -43,7 +48,11 @@ export async function POST(req) {
       .setExpirationTime("1d")
       .sign(secret);
 
-    const res = NextResponse.json({ success: true, user });
+    const res = NextResponse.json({
+      success: true,
+      user: { id: user._id, walletAddress: user.walletAddress },
+    });
+
     res.cookies.set("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
