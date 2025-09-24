@@ -1,22 +1,34 @@
 import { NextResponse } from "next/server";
+import { connectDB } from "@/lib/db";
+import User from "@/models/User";
 import crypto from "crypto";
 
-// Store nonce in-memory (or Redis/DB in production)
-let nonces = {};
-
 export async function GET(req) {
-  const nonce = crypto.randomBytes(16).toString("hex");
-  const ip = req.headers.get("x-forwarded-for") || "global";
-  nonces[ip] = nonce;
+  try {
+    const { searchParams } = new URL(req.url);
+    const address = searchParams.get("address");
 
-  return NextResponse.json({ nonce });
-}
+    if (!address) {
+      return NextResponse.json({ error: "Wallet address required" }, { status: 400 });
+    }
 
-// Export for verify route to access
-export function getNonce(ip) {
-  return nonces[ip];
-}
+    await connectDB();
 
-export function clearNonce(ip) {
-  delete nonces[ip];
+    // Generate nonce
+    const nonce = crypto.randomBytes(16).toString("hex");
+
+    // Create or update user with nonce
+    let user = await User.findOne({ walletAddress: address });
+    if (!user) {
+      user = await User.create({ walletAddress: address, nonce });
+    } else {
+      user.nonce = nonce;
+      await user.save();
+    }
+
+    return NextResponse.json({ nonce });
+  } catch (err) {
+    console.error("❌ Nonce error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
+  }
 }

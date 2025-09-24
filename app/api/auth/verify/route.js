@@ -1,28 +1,27 @@
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/db";
 import User from "@/models/User";
-import { SignJWT } from "jose";
 import { verifyMessage } from "viem";
-import { getNonce, clearNonce } from "../nonce/route";
+import { SignJWT } from "jose";
 
 export async function POST(req) {
   try {
-    const { address, signature } = await req.json();
-
-    if (!address || !signature) {
-      return NextResponse.json({ error: "Missing address or signature" }, { status: 400 });
+    const { address, signature, message } = await req.json();
+    if (!address || !signature || !message) {
+      return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    const ip = req.headers.get("x-forwarded-for") || "global";
-    const nonce = getNonce(ip);
-    if (!nonce) {
-      return NextResponse.json({ error: "Nonce expired or missing" }, { status: 400 });
+    await connectDB();
+
+    const user = await User.findOne({ walletAddress: address });
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 400 });
     }
 
-    // Verify signature
+    // Verify signed nonce
     const valid = await verifyMessage({
       address,
-      message: nonce,
+      message,
       signature,
     });
 
@@ -31,16 +30,8 @@ export async function POST(req) {
     }
 
     // Clear nonce after use
-    clearNonce(ip);
-
-    // Connect DB
-    await connectDB();
-
-    // Find or create user
-    let user = await User.findOne({ walletAddress: address });
-    if (!user) {
-      user = await User.create({ walletAddress: address });
-    }
+    user.nonce = null;
+    await user.save();
 
     // Issue JWT
     const secret = new TextEncoder().encode(process.env.JWT_SECRET);
@@ -52,19 +43,18 @@ export async function POST(req) {
       .setExpirationTime("1d")
       .sign(secret);
 
-    // Send response with cookie
     const res = NextResponse.json({ success: true, user });
     res.cookies.set("token", token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 60 * 60 * 24,
       path: "/",
+      maxAge: 60 * 60 * 24,
     });
 
     return res;
   } catch (err) {
-    console.error("❌ Auth verify error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("❌ Verify error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
