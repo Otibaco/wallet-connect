@@ -27,8 +27,9 @@ export async function GET(req) {
     }
 
     return NextResponse.json({ nonce });
+    
   } catch (err) {
-    console.error("❌ Nonce error:", err);
+    toast("❌ Nonce error:", err);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
